@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Fonction pour vérifier si l'utilisateur est authentifié
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Fonction pour vérifier si l'utilisateur accède à ses propres données
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Règles pour la collection users
+    match /users/{userId} {
+      // Permettre l'accès uniquement à ses propres données
+      allow read, write: if isAuthenticated() && isOwner(userId);
+      
+      // Règles pour le panier
+      match /cart/{itemId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+      
+      // Règles pour les factures
+      match /invoices/{invoiceId} {
+        allow read, write: if isAuthenticated() && isOwner(userId);
+      }
+    }
+  }
+}

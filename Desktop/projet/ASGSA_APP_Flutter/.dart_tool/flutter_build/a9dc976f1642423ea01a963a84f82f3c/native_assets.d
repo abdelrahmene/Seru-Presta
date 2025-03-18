@@ -1,0 +1,1 @@
+ C:\\Users\\abdelrahmene\ fares\\Desktop\\projet\\ASGSA_APP_Flutter\\Flutter-TDD-Clean-Architecture-E-Commerce-App\\.dart_tool\\flutter_build\\a9dc976f1642423ea01a963a84f82f3c\\native_assets.yaml: 

@@ -1,0 +1,9 @@
+{
+  "products": {
+    "product1": {
+      "name": "Chaussures Sport",
+      "description": "Chaussures légères et résistantes",
+      "category": "Sport",
+      "price": 5990,
+      "imageUrl": "https://cdn.pixabay.com/photo/2025/02/26/09/58/bird-9432600_1280.jpg"
+    }}}
