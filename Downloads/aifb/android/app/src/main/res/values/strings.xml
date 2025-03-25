@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">aifb</string>
+
+    <string name="facebook_app_id">321642247097806</string>
+    <string name="fb_login_protocol_scheme">fb321642247097806</string>
+    <string name="facebook_client_token">92bcf562a8df74d304e359bf986d4499</string>
+</resources>
