@@ -1,0 +1,52 @@
+**Roadmap d’intégration de l’API Facebook**
+
+---
+
+## 1️⃣ Récupérer l’ID du Business Manager  
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/me/businesses?access_token={USER_ACCESS_TOKEN}"
+```
+
+## 2️⃣ Lister les comptes publicitaires  
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{BUSINESS_ID}/owned_ad_accounts?access_token={USER_ACCESS_TOKEN}"
+```
+
+## 3️⃣ Lister les publicités d’un compte  
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{AD_ACCOUNT_ID}/ads?fields=id,name,status,created_time&access_token={USER_ACCESS_TOKEN}"
+```
+
+## 4️⃣ Obtenir le nombre total de pubs  
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{AD_ACCOUNT_ID}/ads?summary=total_count&access_token={USER_ACCESS_TOKEN}"
+```
+
+## 5️⃣ Obtenir uniquement les pubs actives  
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{AD_ACCOUNT_ID}/ads?filtering=[{\"field\":\"ad.effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]&summary=total_count&access_token={USER_ACCESS_TOKEN}"
+```
+
+---
+
+## 🔹 Récupérer l'Access Token de la Page
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{PAGE_ID}?fields=access_token&access_token={USER_ACCESS_TOKEN}"
+```
+
+## 🔹 Récupérer les Posts de la Page
+### Requête :
+```sh
+curl -X GET "https://graph.facebook.com/v22.0/{PAGE_ID}/posts?access_token={PAGE_ACCESS_TOKEN}"
+```
+
+---
+
+🚀 **Cette roadmap permet d’intégrer les données Facebook Ads et Pages à votre application.**
+

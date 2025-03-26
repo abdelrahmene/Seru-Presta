@@ -1,119 +1,127 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:get/get.dart';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'facebook_ads_services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AutoResponse {
+  final String id;
+  final String trigger;
+  final String response;
+  final bool isActive;
+  final String type; // 'comment' ou 'message'
+
+  AutoResponse({
+    required this.id,
+    required this.trigger,
+    required this.response,
+    required this.isActive,
+    required this.type,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'trigger': trigger,
+    'response': response,
+    'isActive': isActive,
+    'type': type,
+  };
+
+  factory AutoResponse.fromJson(Map<String, dynamic> json) => AutoResponse(
+    id: json['id'],
+    trigger: json['trigger'],
+    response: json['response'],
+    isActive: json['isActive'],
+    type: json['type'],
+  );
+}
 
 class FacebookService extends GetxService {
   final _isLoggedIn = false.obs;
   final _user = Rxn<Map<String, dynamic>>();
   final _pages = <Map<String, dynamic>>[].obs;
   final _selectedPage = Rxn<Map<String, dynamic>>();
-  final _businessManagerId = Rxn<String>();
-  final _imageCache = DefaultCacheManager();
+  final _autoResponses = <AutoResponse>[].obs;
+  final _isAutomationEnabled = true.obs;
+  final _accessToken = ''.obs;
+  final _notificationSettings =
+      {
+        'enabled': true,
+        'emailNotifications': true,
+        'frequency': 'immediate',
+      }.obs;
+
+  static const String _kAccessTokenKey = 'facebook_access_token';
+  static const String _kIsLoggedInKey = 'facebook_is_logged_in';
 
   bool get isLoggedIn => _isLoggedIn.value;
   Map<String, dynamic>? get user => _user.value;
   List<Map<String, dynamic>> get pages => _pages;
-  Map<String, dynamic>? get selectedPage => _selectedPage.value;
-  String? get businessManagerId => _businessManagerId.value;
+  Rxn<Map<String, dynamic>> get selectedPage => _selectedPage;
+  List<AutoResponse> get autoResponses => _autoResponses;
+  bool get isAutomationEnabled => _isAutomationEnabled.value;
+  void setAutomationEnabled(bool value) {
+    _isAutomationEnabled.value = value;
+  }
+
+  String get accessToken => _accessToken.value;
+  Map<String, dynamic> get notificationSettings => _notificationSettings;
 
   Future<void> login() async {
     try {
-      debugPrint('=== Début de la connexion Facebook ===');
-
       final LoginResult result = await FacebookAuth.instance.login(
         permissions: [
           'public_profile',
           'email',
           'pages_show_list',
           'pages_read_engagement',
-          'pages_manage_metadata',
-          'pages_read_user_content',
-          'pages_manage_ads',
           'pages_manage_posts',
-          'pages_manage_engagement',
+          'pages_manage_metadata',
+          'ads_management',
+          'ads_read',
+          'business_management',
         ],
       );
 
-      debugPrint('Résultat de la connexion: ${result.status}');
-
       if (result.status == LoginStatus.success) {
-        debugPrint('Connexion réussie, récupération des données utilisateur');
-
-        final userData = await FacebookAuth.instance.getUserData();
-        debugPrint('Données utilisateur: $userData');
-
-        _user.value = userData;
+        _accessToken.value = result.accessToken?.token ?? '';
         _isLoggedIn.value = true;
 
-        // Récupérer les Business Managers
-        debugPrint('Récupération des Business Managers...');
-        final businessManagerData = await _fetchBusinessManagers();
-        debugPrint('Données Business Manager: $businessManagerData');
+        // Save to shared preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kAccessTokenKey, _accessToken.value);
+        await prefs.setBool(_kIsLoggedInKey, true);
 
-        if (businessManagerData['data'] != null &&
-            businessManagerData['data'].isNotEmpty) {
-          final businessManager = businessManagerData['data'].first;
-          _businessManagerId.value = businessManager['id'];
-          debugPrint('Business Manager ID: ${_businessManagerId.value}');
-        }
+        // Fetch user data
+        final userData = await FacebookAuth.instance.getUserData();
+        _user.value = userData;
 
-        // Récupérer les pages dès la connexion
-        debugPrint('Récupération des pages...');
-        await fetchPages();
-
-        Get.snackbar('Succès', 'Connexion réussie');
-      } else {
-        debugPrint('Erreur de connexion: ${result.status}');
-        Get.snackbar('Erreur', 'Échec de la connexion');
+        // Initialize other services
+        await Get.find<FacebookAdsService>().init(_accessToken.value);
       }
-    } catch (e, stack) {
-      debugPrint('Erreur lors de la connexion: $e');
-      debugPrint('Stack trace: $stack');
-      Get.snackbar('Erreur', 'Une erreur est survenue lors de la connexion');
+    } catch (e) {
+      debugPrint('Error during login: $e');
+      rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> _fetchBusinessManagers() async {
+  Future<void> checkAndRestoreSession() async {
     try {
-      debugPrint('=== Début de la récupération des Business Managers ===');
+      final prefs = await SharedPreferences.getInstance();
+      final savedToken = prefs.getString(_kAccessTokenKey);
+      final isLoggedIn = prefs.getBool(_kIsLoggedInKey) ?? false;
 
-      final token = await FacebookAuth.instance.accessToken;
-      if (token == null) {
-        debugPrint('Erreur: Token non disponible');
-        return {'data': []};
-      }
+      if (isLoggedIn && savedToken != null && savedToken.isNotEmpty) {
+        _accessToken.value = savedToken;
+        _isLoggedIn.value = true;
 
-      debugPrint(
-        'Token d\'access disponible. Récupération des Business Managers...',
-      );
-      debugPrint('Token: ${token.token}');
-
-      final response = await http.get(
-        Uri.parse(
-          'https://graph.facebook.com/v22.0/me/business_managers?'
-          'fields=id,name&'
-          'access_token=${token.token}',
-        ),
-      );
-
-      debugPrint('Statut de la réponse: ${response.statusCode}');
-      debugPrint('Corps de la réponse: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        debugPrint('Données Business Managers: $data');
-        return data;
-      } else {
-        debugPrint('Erreur API: ${response.statusCode} - ${response.body}');
-        return {'data': []};
+        // Initialize other services with the saved token
+        await Get.find<FacebookAdsService>().init(savedToken);
       }
     } catch (e) {
-      debugPrint('Erreur lors de la récupération des Business Managers: $e');
-      return {'data': []};
+      debugPrint('Error restoring session: $e');
     }
   }
 
@@ -121,326 +129,170 @@ class FacebookService extends GetxService {
     try {
       debugPrint('=== Début de la récupération des pages ===');
 
-      if (!_isLoggedIn.value) {
-        Get.snackbar(
-          'Erreur',
-          'Vous devez être connecté pour accéder aux pages',
-        );
-        debugPrint('Utilisateur non connecté');
-        return;
-      }
-
-      debugPrint('Utilisateur connecté, vérification du token...');
       final token = await FacebookAuth.instance.accessToken;
-
       if (token == null) {
-        debugPrint('Erreur: Token non disponible');
-        Get.snackbar('Erreur', 'Token d\'access non disponible');
+        debugPrint('Aucun token d\'access disponible');
         return;
       }
 
-      debugPrint('Token d\'access disponible. Vérification des permissions...');
-
-      // Récupérer les permissions depuis l'API Facebook
-      final permissionsResponse = await http.get(
-        Uri.parse(
-          'https://graph.facebook.com/v17.0/me/permissions?'
-          'access_token=${token.token}',
-        ),
-      );
-
-      if (permissionsResponse.statusCode == 200) {
-        final permissionsData = json.decode(permissionsResponse.body);
-        debugPrint('Permissions disponibles: $permissionsData');
-      } else {
-        debugPrint(
-          'Erreur lors de la récupération des permissions: ${permissionsResponse.statusCode}',
-        );
-      }
-
-      // Récupérer les pages avec tous les champs nécessaires
-      final fields =
-          'id,name,access_token,picture{url},about,category,description,'
-          'emails,website,phone,location{city,country,latitude,longitude,street,zip},'
-          'fan_count,talking_about_count,checkins,was_here_count,can_post,'
-          'is_verified,is_published,link,username';
-
-      debugPrint(
-        'Requête API: https://graph.facebook.com/v17.0/me/accounts?fields=$fields',
-      );
-      debugPrint('Token d\'access: ${token.token}');
-
-      // D'abord récupérer les pages de base
       final response = await http.get(
         Uri.parse(
-          'https://graph.facebook.com/v17.0/me/accounts?'
-          'fields=$fields&'
-          'access_token=${token.token}',
+          'https://graph.facebook.com/v17.0/me/accounts'
+          '?fields=id,name,access_token,picture{url}'
+          '&access_token=${token.token}',
         ),
       );
-
-      debugPrint('Statut de la réponse: ${response.statusCode}');
-      debugPrint('Corps de la réponse: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        debugPrint('Données brutes: $data');
-
-        if (data['data'] != null) {
-          debugPrint('Nombre initial de pages: ${data['data'].length}');
-
-          final List<Map<String, dynamic>>
-          pages = List<Map<String, dynamic>>.from(
-            data['data'].map((page) {
-              debugPrint('Page trouvée: ${page['name']} (ID: ${page['id']})');
-
-              if (page['picture'] != null &&
-                  page['picture']['data'] != null &&
-                  page['picture']['data']['url'] != null) {
-                page['picture']['data']['url'] =
-                    page['picture']['data']['url'] + '?height=500&width=500';
-              }
-              return page;
-            }).toList(),
-          );
-
-          // Vérifier si il y a plus de pages (pagination)
-          if (data['paging'] != null && data['paging']['next'] != null) {
-            debugPrint('Pages supplémentaires à récupérer');
-            debugPrint('URL de pagination: ${data['paging']['next']}');
-            await _fetchAdditionalPages(data['paging']['next'], pages);
-          }
-
-          _pages.value = pages;
-          debugPrint('Nombre total de pages trouvées: ${pages.length}');
-          debugPrint('Pages finales: $pages');
-        } else {
-          debugPrint('Aucune page trouvée dans la réponse');
-          _pages.clear();
-          Get.snackbar('Info', 'Aucune page trouvée');
-        }
+        _pages.value = List<Map<String, dynamic>>.from(data['data'] ?? []);
+        debugPrint('Pages récupérées: ${_pages.length}');
       } else {
-        debugPrint('Erreur API: ${response.statusCode} - ${response.body}');
-        Get.snackbar('Erreur', 'Erreur lors de la récupération des pages');
+        throw Exception('Erreur API: ${response.statusCode}');
       }
-    } catch (e, stack) {
+    } catch (e) {
       debugPrint('Erreur lors de la récupération des pages: $e');
-      debugPrint('Stack trace: $stack');
-      Get.snackbar('Erreur', 'Une erreur est survenue: $e');
+      throw Exception('Erreur: $e');
     }
   }
 
-  Future<void> _fetchAdditionalPages(
-    String nextPageUrl,
-    List<Map<String, dynamic>> pages,
-  ) async {
+  Future<void> addAutoResponse(AutoResponse response) async {
     try {
-      debugPrint('Récupération de pages supplémentaires...');
-      debugPrint('URL de pagination: $nextPageUrl');
+      // TODO: Implémenter la sauvegarde dans une base de données
+      _autoResponses.add(response);
+    } catch (e) {
+      debugPrint('Erreur lors de l\'ajout de la réponse automatique: $e');
+      throw Exception('Erreur: $e');
+    }
+  }
 
-      final response = await http.get(Uri.parse(nextPageUrl));
-      debugPrint('Statut de la réponse: ${response.statusCode}');
-      debugPrint('Corps de la réponse: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        debugPrint('Données brutes: $data');
-
-        if (data['data'] != null) {
-          debugPrint(
-            'Nombre de pages supplémentaires trouvées: ${data['data'].length}',
-          );
-
-          final newPages = List<Map<String, dynamic>>.from(
-            data['data'].map((page) {
-              debugPrint(
-                'Page supplémentaire trouvée: ${page['name']} (ID: ${page['id']})',
-              );
-
-              if (page['picture'] != null &&
-                  page['picture']['data'] != null &&
-                  page['picture']['data']['url'] != null) {
-                page['picture']['data']['url'] =
-                    page['picture']['data']['url'] + '?height=500&width=500';
-              }
-              return page;
-            }).toList(),
-          );
-
-          pages.addAll(newPages);
-          debugPrint('Nombre total de pages après pagination: ${pages.length}');
-
-          // Vérifier s'il y a encore plus de pages
-          if (data['paging'] != null && data['paging']['next'] != null) {
-            debugPrint('Pages supplémentaires à récupérer');
-            debugPrint('URL de pagination: ${data['paging']['next']}');
-            await _fetchAdditionalPages(data['paging']['next'], pages);
-          }
-        }
+  Future<void> toggleAutoResponse(String responseId) async {
+    try {
+      final index = _autoResponses.indexWhere((r) => r.id == responseId);
+      if (index != -1) {
+        final response = _autoResponses[index];
+        _autoResponses[index] = AutoResponse(
+          id: response.id,
+          trigger: response.trigger,
+          response: response.response,
+          isActive: !response.isActive,
+          type: response.type,
+        );
       }
     } catch (e) {
       debugPrint(
-        'Erreur lors de la récupération des pages supplémentaires: $e',
+        'Erreur lors de la modification de la réponse automatique: $e',
       );
+      throw Exception('Erreur: $e');
     }
   }
 
-  Future<void> refreshPages() async {
+  Future<void> deleteAutoResponse(String responseId) async {
     try {
-      if (!_isLoggedIn.value) {
-        Get.snackbar(
-          'Erreur',
-          'Vous devez être connecté pour accéder aux pages',
-        );
-        return;
-      }
+      _autoResponses.removeWhere((r) => r.id == responseId);
+    } catch (e) {
+      debugPrint('Erreur lors de la suppression de la réponse automatique: $e');
+      throw Exception('Erreur: $e');
+    }
+  }
 
-      debugPrint('Début du rafraîchissement des pages');
+  Future<void> toggleAutomation(bool enabled) async {
+    try {
+      _isAutomationEnabled.value = enabled;
+      // TODO: Sauvegarder la préférence
+    } catch (e) {
+      debugPrint('Erreur lors de la modification de l\'automatisation: $e');
+      throw Exception('Erreur: $e');
+    }
+  }
 
+  Future<void> updateNotificationSettings(Map<String, dynamic> settings) async {
+    try {
+      _notificationSettings.value = {..._notificationSettings, ...settings};
+      // TODO: Sauvegarder les préférences
+    } catch (e) {
+      debugPrint('Erreur lors de la mise à jour des notifications: $e');
+      throw Exception('Erreur: $e');
+    }
+  }
+
+  Future<String?> getPageAccessToken(String pageId) async {
+    try {
       final token = await FacebookAuth.instance.accessToken;
-      if (token == null) {
-        debugPrint('Token non disponible');
-        return;
-      }
-
-      // Récupérer les pages avec tous les champs nécessaires
-      final fields =
-          'id,name,access_token,picture{url},about,category,description,'
-          'emails,website,phone,location{city,country,latitude,longitude,street,zip},'
-          'fan_count,talking_about_count,checkins,was_here_count,can_post,'
-          'is_verified,is_published,link,username';
+      if (token == null) return null;
 
       final response = await http.get(
         Uri.parse(
-          'https://graph.facebook.com/v17.0/${_businessManagerId.value}/owned_pages?'
-          'fields=$fields&'
-          'access_token=${token.token}',
+          'https://graph.facebook.com/v17.0/$pageId'
+          '?fields=access_token'
+          '&access_token=${token.token}',
         ),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        debugPrint('Données des pages: $data');
-
-        if (data['data'] != null) {
-          final List<Map<String, dynamic>> pages =
-              List<Map<String, dynamic>>.from(
-                data['data'].map((page) {
-                  if (page['picture'] != null &&
-                      page['picture']['data'] != null &&
-                      page['picture']['data']['url'] != null) {
-                    page['picture']['data']['url'] =
-                        page['picture']['data']['url'] +
-                        '?height=500&width=500';
-                  }
-                  return page;
-                }).toList(),
-              );
-          _pages.value = pages;
-          debugPrint('Nombre de pages trouvées: ${pages.length}');
-          Get.snackbar('Succès', 'Pages rafraîchies avec succès');
-        } else {
-          debugPrint('Aucune page trouvée');
-          _pages.clear();
-          Get.snackbar('Info', 'Aucune page trouvée');
-        }
-      } else {
-        debugPrint('Erreur API: ${response.statusCode} - ${response.body}');
-        Get.snackbar('Erreur', 'Erreur lors du rafraîchissement des pages');
+        return data['access_token'];
       }
-    } catch (e, stack) {
-      debugPrint('Erreur lors du rafraîchissement des pages: $e');
-      debugPrint('Stack trace: $stack');
-      Get.snackbar('Erreur', 'Une erreur est survenue: $e');
+      return null;
+    } catch (e) {
+      debugPrint('Erreur lors de la récupération du token de la page: $e');
+      return null;
     }
   }
 
-  void setSelectedPage(Map<String, dynamic>? page) {
-    debugPrint('Page sélectionnée: ${page?['name']}');
+  void selectPage(Map<String, dynamic> page) {
+    debugPrint('Sélection de la page: ${page['name']} (ID: ${page['id']})');
     _selectedPage.value = page;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchPagePosts() async {
+    try {
+      if (_selectedPage.value == null) {
+        throw Exception('Aucune page sélectionnée');
+      }
+
+      final pageId = _selectedPage.value!['id'];
+      final pageAccessToken = await getPageAccessToken(pageId);
+
+      if (pageAccessToken == null) {
+        throw Exception('Impossible de récupérer le token de la page');
+      }
+
+      final response = await http.get(
+        Uri.parse(
+          'https://graph.facebook.com/v17.0/$pageId/posts'
+          '?fields=id,message,created_time,attachments,'
+          'likes.summary(true),comments.summary(true)'
+          '&access_token=$pageAccessToken',
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return List<Map<String, dynamic>>.from(data['data'] ?? []);
+      } else {
+        throw Exception('Erreur API: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Erreur lors de la récupération des posts: $e');
+      throw Exception('Erreur: $e');
+    }
   }
 
   Future<void> logout() async {
     try {
       await FacebookAuth.instance.logOut();
+      _accessToken.value = '';
       _isLoggedIn.value = false;
       _user.value = null;
-      _pages.clear();
-      _selectedPage.value = null;
-      _businessManagerId.value = null;
-      Get.snackbar('Succès', 'Déconnexion réussie');
+
+      // Clear from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kAccessTokenKey);
+      await prefs.remove(_kIsLoggedInKey);
     } catch (e) {
-      debugPrint('Erreur lors de la déconnexion: $e');
-      Get.snackbar('Erreur', 'Une erreur est survenue lors de la déconnexion');
-    }
-  }
-
-  Future<ImageProvider> getCachedPageImage(String imageUrl) async {
-    try {
-      debugPrint('Récupération de l\'image depuis le cache: $imageUrl');
-
-      // Ajouter le token d\'accès à l\'URL de l\'image
-      final token = await FacebookAuth.instance.accessToken;
-      if (token != null) {
-        // Vérifier si l'URL est une URL Facebook
-        if (imageUrl.startsWith('https://scontent.') &&
-            imageUrl.contains('fbcdn.net')) {
-          // Extraire l'ID de l'image de l'URL
-          final uri = Uri.parse(imageUrl);
-          final idMatch = RegExp(r'_(\d+)_').firstMatch(uri.path);
-          if (idMatch != null) {
-            final imageId = idMatch.group(1);
-
-            // Construire l'URL avec l'ID et le token
-            final urlWithToken =
-                'https://graph.facebook.com/v22.0/$imageId/picture?'
-                'access_token=${token.token}';
-
-            debugPrint('URL avec token: $urlWithToken');
-
-            // Vérifier dans le cache
-            final file = await _imageCache.getSingleFile(urlWithToken);
-            if (file != null) {
-              debugPrint('Image trouvée dans le cache');
-              return FileImage(file);
-            }
-
-            debugPrint('Image non trouvée dans le cache, téléchargement...');
-            final result = await _imageCache.downloadFile(urlWithToken);
-            return FileImage(result.file);
-          }
-        }
-
-        // Si ce n'est pas une URL Facebook, utiliser l'URL originale
-        final urlWithToken =
-            Uri.parse(imageUrl)
-                .replace(
-                  queryParameters: {
-                    ...Uri.parse(imageUrl).queryParameters,
-                    'access_token': token.token,
-                  },
-                )
-                .toString();
-
-        debugPrint('URL avec token: $urlWithToken');
-
-        final file = await _imageCache.getSingleFile(urlWithToken);
-
-        if (file != null) {
-          debugPrint('Image trouvée dans le cache');
-          return FileImage(file);
-        }
-
-        debugPrint('Image non trouvée dans le cache, téléchargement...');
-        final result = await _imageCache.downloadFile(urlWithToken);
-        return FileImage(result.file);
-      }
-
-      debugPrint('Token non disponible, utilisation de l\'image par défaut');
-      return AssetImage('assets/default_page_image.png');
-    } catch (e) {
-      debugPrint('Erreur lors du téléchargement de l\'image: $e');
-      return AssetImage('assets/default_page_image.png');
+      debugPrint('Error during logout: $e');
+      rethrow;
     }
   }
 }

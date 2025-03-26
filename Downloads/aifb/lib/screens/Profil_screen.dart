@@ -1,9 +1,11 @@
+import 'package:aifb/screens/settings/facebook_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../services/facebook_service.dart';
-import '../widgets/facebook_profile.dart';
 
 class ProfilScreen extends GetView<FacebookService> {
+  const ProfilScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,7 +70,28 @@ class ProfilScreen extends GetView<FacebookService> {
                       return Center(child: CircularProgressIndicator());
                     }
 
-                    return FacebookProfileWidget();
+                    return Column(
+                      children: [
+                        FacebookProfileWidget(profile: user),
+                        const SizedBox(height: 20),
+
+                        // Bouton pour accéder au Dashboard
+                        ElevatedButton.icon(
+                          onPressed: () => Get.toNamed('/dashboard'),
+                          icon: const Icon(Icons.dashboard),
+                          label: const Text("Accéder au Dashboard"),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
                   }),
                 ),
               ],
