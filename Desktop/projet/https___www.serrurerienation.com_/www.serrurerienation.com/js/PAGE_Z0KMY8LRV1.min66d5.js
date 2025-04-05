@@ -1,0 +1,7 @@
+var $clicked=null;var onRecaptchaSubmit=function(token){$clicked.off('valid.fndtn.abide').off('submit');$clicked.submit();}
+var myCall=function(e,$idxForm){$clicked=$(e.target);grecaptcha.execute($idxForm);}
+var getFormIndex=function($formId,$form){var index=0;if($formId>0){$('form:has(.g-recaptcha)').each(function(idx){if($(this).is($form)){index=idx;}});}
+return index;}
+$(function(){$('form:has(.g-recaptcha)').on('valid.fndtn.abide',function(e){var $formId=(typeof $(this).find('input[name="fideo"]')!=="undefined")?$(this).find('input[name="fideo"]').val():0;if(typeof $formId=="undefined"){$formId=0;}
+var $idxForm=getFormIndex($formId,$(this));myCall(e,$idxForm);}).on('invalid.fndtn.abide',function(e){grecaptcha.reset();}).on('submit',function(e){e.preventDefault();return false;});});function verifierEtat(checkbox){$(checkbox).each(function(){if($(this).prop("checked")===true){$(checkbox).removeAttr("required");return false;}else{$(checkbox).attr("required",true);}});}
+$(window).on("load",function(){var chkboxname="input[name='formtag0-rgpd-check-1[]']";var attribu=$(chkboxname).attr("required");if(attribu!==undefined&&attribu!==false){verifierEtat(chkboxname);$(chkboxname).on("change",function(){verifierEtat(chkboxname);});}});
